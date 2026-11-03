@@ -211,7 +211,72 @@ class PanelAccessibilityService : AccessibilityService() {
             checkImmersiveMode()
         }
     }
+    private class FrameView(context: android.content.Context) : android.view.View(context) {
+        private val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = android.graphics.Color.parseColor("#101010")
+        }
+        private val path = android.graphics.Path()
+        private val radius = 20f * resources.displayMetrics.density
 
+        override fun onDraw(canvas: android.graphics.Canvas) {
+            path.reset()
+            path.fillType = android.graphics.Path.FillType.EVEN_ODD
+            path.addRect(0f, 0f, width.toFloat(), height.toFloat(), android.graphics.Path.Direction.CW)
+            path.addRoundRect(0f, 0f, width.toFloat(), height.toFloat(), radius, radius, android.graphics.Path.Direction.CW)
+            canvas.drawPath(path, paint)
+        }
+    }
+
+    private var frameView: FrameView? = null
+    private var frameParams: android.view.WindowManager.LayoutParams? = null
+
+    private fun updateFrame() {
+        if (!panelPrefs.serviceEnabled) { hideFrame(); return }
+        val dm = resources.displayMetrics
+        var target: android.graphics.Rect? = null
+        for (w in windows) {
+            if (w.type != android.view.accessibility.AccessibilityWindowInfo.TYPE_APPLICATION) continue
+            val r = android.graphics.Rect()
+            w.getBoundsInScreen(r)
+            val isFull = r.width() >= dm.widthPixels * 0.9 && r.height() >= dm.heightPixels * 0.9
+            if (!isFull && r.width() > 100 && r.height() > 100) { target = r; break }
+        }
+        if (target == null) { hideFrame(); return }
+        showFrame(target)
+    }
+
+    private fun showFrame(r: android.graphics.Rect) {
+        val wm = getSystemService(WINDOW_SERVICE) as android.view.WindowManager
+        val lp = frameParams ?: android.view.WindowManager.LayoutParams(
+            r.width(), r.height(),
+            android.view.WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                android.view.WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            android.graphics.PixelFormat.TRANSLUCENT
+        ).apply { gravity = android.view.Gravity.TOP or android.view.Gravity.START }
+        lp.x = r.left
+        lp.y = r.top
+        lp.width = r.width()
+        lp.height = r.height()
+        frameParams = lp
+        val v = frameView
+        if (v == null) {
+            val nv = FrameView(this)
+            frameView = nv
+            wm.addView(nv, lp)
+        } else {
+            wm.updateViewLayout(v, lp)
+        }
+    }
+
+    private fun hideFrame() {
+        val v = frameView ?: return
+        try {
+            (getSystemService(WINDOW_SERVICE) as android.view.WindowManager).removeView(v)
+        } catch (e: Exception) {}
+        frameView = null
+    }
     override fun onInterrupt() {}
 
     override fun onUnbind(intent: Intent?): Boolean {
